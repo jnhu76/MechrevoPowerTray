@@ -3,7 +3,7 @@ namespace MechrevoPowerTray.Services;
 internal enum StartupTaskState
 {
     Missing,
-    LegacyPresent,
+    Present,
     Invalid
 }
 
@@ -32,7 +32,7 @@ internal sealed class StartupTaskService
 
             return result.Status switch
             {
-                ProcessRunStatus.Started when result.ExitCode == 0 => StartupTaskState.LegacyPresent,
+                ProcessRunStatus.Started when result.ExitCode == 0 => StartupTaskState.Present,
                 ProcessRunStatus.Started => StartupTaskState.Missing,
                 _ => StartupTaskState.Invalid
             };
@@ -93,6 +93,43 @@ internal sealed class StartupTaskService
         catch (Exception ex)
         {
             return (false, $"删除异常：{ex.Message}");
+        }
+    }
+
+    internal async Task<(bool Success, string Message)> CreateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exePath))
+            {
+                return (false, "无法获取程序路径");
+            }
+
+            var result = await _processRunner.RunAsync(
+                SchtasksFullPath,
+                ["/Create", "/TN", TaskName, "/TR", exePath, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"],
+                SchtasksTimeout,
+                cancellationToken).ConfigureAwait(false);
+
+            if (result.Status == ProcessRunStatus.Started && result.ExitCode == 0)
+            {
+                return (true, string.Empty);
+            }
+
+            var message = result.Status switch
+            {
+                ProcessRunStatus.Started => $"创建失败（退出码 {result.ExitCode}）",
+                ProcessRunStatus.TimedOut => "创建操作超时",
+                ProcessRunStatus.StartFailed => "无法启动 schtasks.exe",
+                _ => "创建操作失败"
+            };
+
+            return (false, message);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"创建异常：{ex.Message}");
         }
     }
 

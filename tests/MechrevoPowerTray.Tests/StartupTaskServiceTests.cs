@@ -6,7 +6,7 @@ namespace MechrevoPowerTray.Tests;
 public sealed class StartupTaskServiceTests
 {
     [Fact]
-    public async Task GetState_QueryExit0_ReturnsLegacyPresent()
+    public async Task GetState_QueryExit0_ReturnsPresent()
     {
         var runner = new StubProcessRunner((_, _, _, _) =>
             Task.FromResult(new ProcessRunResult(
@@ -15,7 +15,7 @@ public sealed class StartupTaskServiceTests
         var service = new StartupTaskService(runner);
         var state = await service.GetStateAsync();
 
-        Assert.Equal(StartupTaskState.LegacyPresent, state);
+        Assert.Equal(StartupTaskState.Present, state);
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class StartupTaskServiceTests
     }
 
     [Fact]
-    public async Task Remove_LegacyPresent_DeleteExit0_ReturnsSuccess()
+    public async Task Remove_Present_DeleteExit0_ReturnsSuccess()
     {
         var callCount = 0;
         var runner = new StubProcessRunner((fileName, arguments, _, _) =>
@@ -152,6 +152,62 @@ public sealed class StartupTaskServiceTests
 
         Assert.True(success);
         Assert.Equal(string.Empty, message);
+    }
+
+    [Fact]
+    public async Task Create_Exit0_ReturnsSuccess()
+    {
+        var runner = new StubProcessRunner((_, _, _, _) =>
+            Task.FromResult(new ProcessRunResult(
+                ProcessRunStatus.Started, 0, "SUCCESS: Task created", string.Empty)));
+
+        var service = new StartupTaskService(runner);
+        var (success, message) = await service.CreateAsync();
+
+        Assert.True(success);
+        Assert.Equal(string.Empty, message);
+    }
+
+    [Fact]
+    public async Task Create_NonzeroExit_ReturnsFailure()
+    {
+        var runner = new StubProcessRunner((_, _, _, _) =>
+            Task.FromResult(new ProcessRunResult(
+                ProcessRunStatus.Started, 1, string.Empty, "ERROR: Access denied")));
+
+        var service = new StartupTaskService(runner);
+        var (success, message) = await service.CreateAsync();
+
+        Assert.False(success);
+        Assert.Contains("1", message);
+    }
+
+    [Fact]
+    public async Task Create_Timeout_ReturnsFailure()
+    {
+        var runner = new StubProcessRunner((_, _, _, _) =>
+            Task.FromResult(new ProcessRunResult(
+                ProcessRunStatus.TimedOut, null, string.Empty, string.Empty)));
+
+        var service = new StartupTaskService(runner);
+        var (success, message) = await service.CreateAsync();
+
+        Assert.False(success);
+        Assert.Contains("超时", message);
+    }
+
+    [Fact]
+    public async Task Create_StartFailed_ReturnsFailure()
+    {
+        var runner = new StubProcessRunner((_, _, _, _) =>
+            Task.FromResult(new ProcessRunResult(
+                ProcessRunStatus.StartFailed, null, string.Empty, "File not found")));
+
+        var service = new StartupTaskService(runner);
+        var (success, message) = await service.CreateAsync();
+
+        Assert.False(success);
+        Assert.Contains("schtasks.exe", message);
     }
 
     private sealed class StubProcessRunner : IProcessRunner

@@ -56,7 +56,7 @@ dotnet test .\tests\MechrevoPowerTray.Tests\MechrevoPowerTray.Tests.csproj
 - **x64 only**：`PlatformTarget=x64`, `Prefer32Bit=false`
 - **只允许 OEM 值 1/2/3**：任何其他值（含 0、4）必须拒绝，见 `OemPowerMode.IsWhitelisted()`
 - **不做 EC 读写**、不调用其他 WMI 方法、不拼接 WMI 查询字符串
-- **v0.0.2 暂停登录自动启动**：`StartupTaskService` 不含任何创建 HIGHEST 任务的代码路径
+- **登录自动启动**：`StartupTaskService` 通过 `schtasks /Create /SC ONLOGON /RL HIGHEST` 创建计划任务，支持启用/禁用
 - **不依赖本地化错误文本**：`StartupTaskService.RemoveAsync` 靠退出码判断，不用 stderr 字符串匹配
 - **stdout/stderr 并发读取**：`ProcessRunner` 使用 `Task.WhenAny` + timeout + `process.Kill`
 - **源文件全中文**：类名、注释、UI 字符串均为中文
@@ -67,7 +67,7 @@ dotnet test .\tests\MechrevoPowerTray.Tests\MechrevoPowerTray.Tests.csproj
 
 启动后出现在系统托盘，双击切均衡，右键菜单切换模式/诊断/设置。
 设置存储在 `%LOCALAPPDATA%\MechrevoPowerTray\settings.json`。
-"登录后自动启动"已暂停（v0.0.2）；菜单仅显示状态标签和删除旧任务按钮。
+"登录后自动启动"通过计划任务实现（`schtasks /Create /SC ONLOGON /RL HIGHEST`），右键菜单可启用/禁用。
 
 ## 架构要点
 
@@ -77,4 +77,4 @@ dotnet test .\tests\MechrevoPowerTray.Tests\MechrevoPowerTray.Tests.csproj
 - 诊断仅枚举 `SetOemPowerSwitch` 实例数/Active 状态
 - `AppSettingsStore.Save` 使用临时文件 + atomic rename 保证写入不丢数据
 - `ProcessRunner` 通过 `IProcessRunner` 接口注入，支持测试时 stub
-- `StartupTaskService` 状态机：`Missing` / `LegacyPresent` / `Invalid`
+- `StartupTaskService` 状态机：`Missing` / `Present` / `Invalid`

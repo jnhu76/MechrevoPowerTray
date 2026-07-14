@@ -306,15 +306,37 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         try
         {
-            var result = await _startupTaskService.RemoveAsync().ConfigureAwait(false);
+            var state = await _startupTaskService.GetStateAsync().ConfigureAwait(false);
 
-            if (result.Success)
+            if (state == StartupTaskState.Missing)
             {
-                ShowNotification("启动任务", "旧版高权限启动任务已删除。", ToolTipIcon.Info);
+                var result = await _startupTaskService.CreateAsync().ConfigureAwait(false);
+
+                if (result.Success)
+                {
+                    ShowNotification("登录自动启动", "已启用，下次登录时生效。", ToolTipIcon.Info);
+                }
+                else
+                {
+                    ShowError($"启用自动启动失败：{result.Message}");
+                }
+            }
+            else if (state == StartupTaskState.Present)
+            {
+                var result = await _startupTaskService.RemoveAsync().ConfigureAwait(false);
+
+                if (result.Success)
+                {
+                    ShowNotification("登录自动启动", "已禁用。", ToolTipIcon.Info);
+                }
+                else
+                {
+                    ShowError($"禁用自动启动失败：{result.Message}");
+                }
             }
             else
             {
-                ShowError($"删除启动任务失败：{result.Message}");
+                ShowError("启动任务状态异常，无法执行操作。");
             }
         }
         finally
