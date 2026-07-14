@@ -109,9 +109,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
             UpdateMenuState();
         };
 
+        using var iconStream = typeof(Program).Assembly.GetManifestResourceStream("MechrevoPowerTray.icon.ico");
+
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = new Icon(iconStream!),
             Text = "Mechrevo Power Tray",
             ContextMenuStrip = _menu,
             Visible = true
