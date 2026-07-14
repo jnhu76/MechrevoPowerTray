@@ -1,90 +1,101 @@
-using System.Diagnostics;
-
 namespace MechrevoPowerTray.Services;
+
+internal enum StartupTaskState
+{
+    Missing,
+    LegacyPresent,
+    Invalid
+}
 
 internal sealed class StartupTaskService
 {
     private const string TaskName = "MechrevoPowerTray";
+    private const string SchtasksExe = "schtasks.exe";
+    private static readonly TimeSpan SchtasksTimeout = TimeSpan.FromSeconds(15);
 
-    internal bool IsEnabled()
+    private readonly IProcessRunner _processRunner;
+
+    internal StartupTaskService(IProcessRunner processRunner)
     {
-        var result = RunSchtasks("/Query", "/TN", TaskName);
-        return result.ExitCode == 0;
+        _processRunner = processRunner;
     }
 
-    internal (bool Success, string Message) SetEnabled(bool enabled)
+    internal async Task<StartupTaskState> GetStateAsync(CancellationToken cancellationToken = default)
     {
-        if (enabled)
+        try
         {
-            var executable = Environment.ProcessPath;
-            if (string.IsNullOrWhiteSpace(executable))
+            var result = await _processRunner.RunAsync(
+                SchtasksFullPath,
+                ["/Query", "/TN", TaskName],
+                SchtasksTimeout,
+                cancellationToken).ConfigureAwait(false);
+
+            return result.Status switch
             {
-                return (false, "无法确定当前 EXE 路径。");
+                ProcessRunStatus.Started when result.ExitCode == 0 => StartupTaskState.LegacyPresent,
+                ProcessRunStatus.Started => StartupTaskState.Missing,
+                _ => StartupTaskState.Invalid
+            };
+        }
+        catch
+        {
+            return StartupTaskState.Invalid;
+        }
+    }
+
+    internal async Task<(bool Success, string Message)> RemoveAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var queryResult = await _processRunner.RunAsync(
+                SchtasksFullPath,
+                ["/Query", "/TN", TaskName],
+                SchtasksTimeout,
+                cancellationToken).ConfigureAwait(false);
+
+            if (queryResult.Status == ProcessRunStatus.Started && queryResult.ExitCode != 0)
+            {
+                return (true, string.Empty);
             }
 
-            var taskCommand = $"\"{executable}\"";
+            if (queryResult.Status != ProcessRunStatus.Started)
+            {
+                var failMsg = queryResult.Status switch
+                {
+                    ProcessRunStatus.TimedOut => "查询计划任务超时",
+                    ProcessRunStatus.StartFailed => "无法启动 schtasks.exe",
+                    _ => "查询计划任务失败"
+                };
+                return (false, failMsg);
+            }
 
-            var result = RunSchtasks(
-                "/Create",
-                "/TN", TaskName,
-                "/TR", taskCommand,
-                "/SC", "ONLOGON",
-                "/RL", "HIGHEST",
-                "/F");
+            var deleteResult = await _processRunner.RunAsync(
+                SchtasksFullPath,
+                ["/Delete", "/TN", TaskName, "/F"],
+                SchtasksTimeout,
+                cancellationToken).ConfigureAwait(false);
 
-            return result.ExitCode == 0
-                ? (true, "已创建登录启动计划任务。")
-                : (false, $"创建计划任务失败：{result.Error}");
+            if (deleteResult.Status == ProcessRunStatus.Started && deleteResult.ExitCode == 0)
+            {
+                return (true, string.Empty);
+            }
+
+            var message = deleteResult.Status switch
+            {
+                ProcessRunStatus.Started => $"删除失败（退出码 {deleteResult.ExitCode}）",
+                ProcessRunStatus.TimedOut => "删除操作超时",
+                ProcessRunStatus.StartFailed => "无法启动 schtasks.exe",
+                _ => "删除操作失败"
+            };
+
+            return (false, message);
         }
-
-        var deleteResult = RunSchtasks(
-            "/Delete",
-            "/TN", TaskName,
-            "/F");
-
-        if (deleteResult.ExitCode == 0 ||
-            deleteResult.Error.Contains("cannot find", StringComparison.OrdinalIgnoreCase) ||
-            deleteResult.Error.Contains("找不到", StringComparison.OrdinalIgnoreCase))
+        catch (Exception ex)
         {
-            return (true, "已关闭登录启动。");
+            return (false, $"删除异常：{ex.Message}");
         }
-
-        return (false, $"删除计划任务失败：{deleteResult.Error}");
     }
 
-    private static ProcessResult RunSchtasks(params string[] arguments)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.System),
-                "schtasks.exe"),
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        foreach (var argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        using var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            return new ProcessResult(-1, string.Empty, "无法启动 schtasks.exe。");
-        }
-
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        return new ProcessResult(process.ExitCode, output, error);
-    }
-
-    private sealed record ProcessResult(
-        int ExitCode,
-        string Output,
-        string Error);
+    private static string SchtasksFullPath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), SchtasksExe);
 }

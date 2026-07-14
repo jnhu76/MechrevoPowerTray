@@ -12,11 +12,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly Dictionary<OemPowerMode, ToolStripMenuItem> _modeItems;
     private readonly ToolStripMenuItem _syncPowerPlanItem;
     private readonly ToolStripMenuItem _restoreAtStartupItem;
-    private readonly ToolStripMenuItem _startupItem;
+    private readonly ToolStripMenuItem _startupStateItem;
+    private readonly ToolStripMenuItem _startupActionItem;
 
     private readonly OemPowerModeService _oemService = new();
     private readonly WindowsPowerPlanService _powerPlanService = new();
-    private readonly StartupTaskService _startupTaskService = new();
+    private readonly StartupTaskService _startupTaskService;
     private readonly AppSettingsStore _settingsStore = new();
 
     private AppSettings _settings;
@@ -24,7 +25,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private bool _closing;
 
     internal TrayApplicationContext()
+        : this(new ProcessRunner())
     {
+    }
+
+    internal TrayApplicationContext(IProcessRunner processRunner)
+    {
+        _startupTaskService = new StartupTaskService(processRunner);
+
         _settings = _settingsStore.Load();
 
         _menu = new ContextMenuStrip();
@@ -74,12 +82,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         _menu.Items.Add(_restoreAtStartupItem);
 
-        _startupItem = new ToolStripMenuItem("登录后自动启动")
+        _startupStateItem = new ToolStripMenuItem("登录自动启动：查询中…")
         {
-            CheckOnClick = true
+            Enabled = false
         };
-        _startupItem.Click += StartupItem_Click;
-        _menu.Items.Add(_startupItem);
+        _menu.Items.Add(_startupStateItem);
+
+        _startupActionItem = new ToolStripMenuItem();
+        _startupActionItem.Click += StartupActionItem_Click;
+        _menu.Items.Add(_startupActionItem);
 
         _menu.Items.Add(new ToolStripSeparator());
 
@@ -95,17 +106,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         exitItem.Click += (_, _) => ExitApplication();
         _menu.Items.Add(exitItem);
 
-        _menu.Opening += (_, _) =>
+        _menu.Opening += async (_, _) =>
         {
-            try
-            {
-                _startupItem.Checked = _startupTaskService.IsEnabled();
-            }
-            catch
-            {
-                _startupItem.Checked = false;
-            }
-
+            var state = await _startupTaskService.GetStateAsync().ConfigureAwait(false);
+            ApplyStartupState(state);
             UpdateMenuState();
         };
 
@@ -129,6 +133,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
             lastMode.IsWhitelisted())
         {
             _ = SwitchModeAsync(lastMode, isStartupRestore: true);
+        }
+    }
+
+    internal void ApplyStartupState(StartupTaskState state)
+    {
+        var (stateText, actionText) = StartupTaskMenuDisplay.GetDisplay(state);
+        _startupStateItem.Text = stateText;
+        _startupActionItem.Visible = actionText is not null;
+        if (actionText is not null)
+        {
+            _startupActionItem.Text = actionText;
         }
     }
 
@@ -234,22 +249,34 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void StartupItem_Click(object? sender, EventArgs e)
+    private async void StartupActionItem_Click(object? sender, EventArgs e)
     {
-        var requested = _startupItem.Checked;
-        var result = _startupTaskService.SetEnabled(requested);
-
-        if (!result.Success)
+        if (_busy)
         {
-            _startupItem.Checked = !requested;
-            ShowError(result.Message);
             return;
         }
 
-        ShowNotification(
-            "启动设置",
-            result.Message,
-            ToolTipIcon.Info);
+        _busy = true;
+        UpdateMenuState();
+
+        try
+        {
+            var result = await _startupTaskService.RemoveAsync().ConfigureAwait(false);
+
+            if (result.Success)
+            {
+                ShowNotification("启动任务", "旧版高权限启动任务已删除。", ToolTipIcon.Info);
+            }
+            else
+            {
+                ShowError($"删除启动任务失败：{result.Message}");
+            }
+        }
+        finally
+        {
+            _busy = false;
+            UpdateMenuState();
+        }
     }
 
     private void UpdateMenuState()
@@ -269,7 +296,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _syncPowerPlanItem.Enabled = !_busy;
         _restoreAtStartupItem.Enabled = !_busy;
-        _startupItem.Enabled = !_busy;
     }
 
     private void SaveSettings()
@@ -290,7 +316,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void ShowAbout()
     {
         var version = typeof(Program).Assembly.GetName().Version;
-        var versionStr = version is not null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.1";
+        var versionStr = version is not null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.2";
 
         MessageBox.Show(
             $"""
