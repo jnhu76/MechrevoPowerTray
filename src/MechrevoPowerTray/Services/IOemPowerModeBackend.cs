@@ -1,9 +1,12 @@
+using MechrevoPowerTray.Models;
+
 namespace MechrevoPowerTray.Services;
 
 internal sealed record OemBackendProbeResult(
     int ActiveInstanceCount,
     bool Succeeded,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    OemWmiMethodContract? Contract = null);
 
 internal sealed record OemBackendInvokeResult(
     bool InvokeAttempted,

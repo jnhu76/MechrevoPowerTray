@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Management;
+using MechrevoPowerTray.Models;
 
 namespace MechrevoPowerTray.Services;
 
@@ -13,6 +14,7 @@ internal sealed class WmiOemPowerModeBackend : IOemPowerModeBackend
     private static readonly TimeSpan InvokeTimeout = TimeSpan.FromSeconds(10);
 
     private ManagementObject? _cachedInstance;
+    private OemWmiMethodContract? _contract;
     private bool _disposed;
 
     public OemBackendProbeResult ProbeActiveInstances()
@@ -39,7 +41,11 @@ internal sealed class WmiOemPowerModeBackend : IOemPowerModeBackend
 
             collection = searcher.Get();
 
-            var instances = collection.Cast<ManagementObject>().ToList();
+            var instances = new List<ManagementObject>();
+            foreach (ManagementObject obj in collection)
+            {
+                instances.Add(obj);
+            }
 
             foreach (var instance in instances.Skip(1))
             {
@@ -49,7 +55,8 @@ internal sealed class WmiOemPowerModeBackend : IOemPowerModeBackend
             if (instances.Count == 1)
             {
                 _cachedInstance = instances[0];
-                return new OemBackendProbeResult(1, true, null);
+                _contract = OemWmiMethodContract.Probe(_cachedInstance);
+                return new OemBackendProbeResult(1, true, null, _contract);
             }
 
             if (instances.Count > 0)
@@ -93,7 +100,14 @@ internal sealed class WmiOemPowerModeBackend : IOemPowerModeBackend
         try
         {
             using var input = _cachedInstance.GetMethodParameters(MethodName);
-            input[InputParameterName] = value;
+            if (_contract is { IsInputArray: true })
+            {
+                input[InputParameterName] = new byte[] { value };
+            }
+            else
+            {
+                input[InputParameterName] = value;
+            }
 
             var invokeOptions = new InvokeMethodOptions
             {

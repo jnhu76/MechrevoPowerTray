@@ -18,6 +18,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private readonly OemPowerModeService _oemService;
     private readonly WindowsPowerPlanService _powerPlanService = new();
+    private readonly WindowsOverlayService _overlayService = new();
     private readonly StartupTaskService _startupTaskService;
     private readonly AppSettingsStore _settingsStore = new();
 
@@ -45,7 +46,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         _menu.Items.Add(_lastAcceptedItem);
 
-        _hardwareStatusItem = new ToolStripMenuItem("当前硬件模式：未回读")
+        _hardwareStatusItem = new ToolStripMenuItem("控制接口：WMI SetOemPowerSwitch")
         {
             Enabled = false
         };
@@ -137,7 +138,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         UpdateMenuState();
 
         if (_settings.RestoreLastModeAtStartup &&
-            _settings.LastAcceptedMode is { } lastMode &&
+            _settings.LastOemRequestAcceptedMode is { } lastMode &&
             lastMode.IsWhitelisted())
         {
             _ = SwitchModeAsync(lastMode, isStartupRestore: true);
@@ -202,17 +203,24 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 return;
             }
 
-            _settings.LastAcceptedMode = mode;
+            _settings.LastOemRequestAcceptedMode = mode;
             SaveSettings();
             UpdateMenuState();
 
-            PowerPlanSwitchResult? planResult = null;
+            PowerPlanSwitchResult planResult;
             if (_settings.SyncWindowsPowerPlan)
             {
                 planResult = _powerPlanService.SetForMode(mode);
             }
+            else
+            {
+                planResult = new PowerPlanSwitchResult(true, "Windows 电源计划同步已禁用。");
+            }
 
-            ShowOemAccepted(oemResult, planResult, isStartupRestore);
+            var overlayResult = _overlayService.SetForMode(mode);
+
+            var combined = new CombinedModeSwitchResult(mode, oemResult, planResult, overlayResult);
+            ShowSwitchResult(combined, isStartupRestore);
         }
         finally
         {
@@ -221,23 +229,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void ShowOemAccepted(
-        OemModeSwitchResult result,
-        PowerPlanSwitchResult? planResult,
+    private void ShowSwitchResult(
+        CombinedModeSwitchResult result,
         bool isStartupRestore)
     {
-        var title = "OEM 请求已接受";
-        var message = result.Message;
+        var icon = result.AllSuccessful ? ToolTipIcon.Info : ToolTipIcon.Warning;
 
-        if (planResult is { Success: false })
-        {
-            message += Environment.NewLine + $"但 {planResult.Message}";
-            ShowNotification(title, message, ToolTipIcon.Warning);
-        }
-        else
-        {
-            ShowNotification(title, message, ToolTipIcon.Info);
-        }
+        var title = result.AllSuccessful
+            ? "模式切换完成"
+            : "模式切换部分成功";
+
+        ShowNotification(title, result.CombinedMessage, icon);
     }
 
     private void ShowOemRejected(OemModeSwitchResult result)
@@ -324,7 +326,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateMenuState()
     {
-        var lastMode = _settings.LastAcceptedMode;
+        var lastMode = _settings.LastOemRequestAcceptedMode;
 
         if (_busy)
         {
@@ -334,8 +336,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         else
         {
             _lastAcceptedItem.Text = lastMode is { } mode
-                ? $"上次 OEM 已接受请求：{mode.DisplayName()}"
-                : "上次 OEM 已接受请求：无";
+                ? $"上次 OEM 请求已发送：{mode.DisplayName()}"
+                : "上次 OEM 请求已发送：无";
             _hardwareStatusItem.Visible = true;
         }
 

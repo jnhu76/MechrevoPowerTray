@@ -99,20 +99,7 @@ public sealed class OemPowerModeServiceTests
     }
 
     [Fact]
-    public async Task NullOutput_IsIndeterminate()
-    {
-        var backend = new StubBackend(
-            new OemBackendProbeResult(1, true, null),
-            new OemBackendInvokeResult(true, null, false, false, null));
-
-        var service = new OemPowerModeService(backend);
-        var result = await service.SetModeAsync(OemPowerMode.Balanced);
-
-        Assert.Equal(OemSwitchOutcome.Indeterminate, result.Outcome);
-    }
-
-    [Fact]
-    public async Task MissingReturnValue_IsIndeterminate()
+    public async Task NullReturnValueWithoutContract_IsIndeterminate()
     {
         var backend = new StubBackend(
             new OemBackendProbeResult(1, true, null),
@@ -123,32 +110,6 @@ public sealed class OemPowerModeServiceTests
 
         Assert.Equal(OemSwitchOutcome.Indeterminate, result.Outcome);
         Assert.Contains("未返回 ReturnValue", result.Message);
-    }
-
-    [Fact]
-    public async Task NullReturnValue_IsIndeterminate()
-    {
-        var backend = new StubBackend(
-            new OemBackendProbeResult(1, true, null),
-            new OemBackendInvokeResult(true, null, false, false, null));
-
-        var service = new OemPowerModeService(backend);
-        var result = await service.SetModeAsync(OemPowerMode.Balanced);
-
-        Assert.Equal(OemSwitchOutcome.Indeterminate, result.Outcome);
-    }
-
-    [Fact]
-    public async Task InvalidReturnValueType_IsIndeterminate()
-    {
-        var backend = new StubBackend(
-            new OemBackendProbeResult(1, true, null),
-            new OemBackendInvokeResult(true, null, false, false, null));
-
-        var service = new OemPowerModeService(backend);
-        var result = await service.SetModeAsync(OemPowerMode.Balanced);
-
-        Assert.Equal(OemSwitchOutcome.Indeterminate, result.Outcome);
     }
 
     [Fact]
@@ -262,6 +223,66 @@ public sealed class OemPowerModeServiceTests
         var result = await service.SetModeAsync(OemPowerMode.Quiet);
 
         Assert.NotEqual(OemSwitchOutcome.Accepted, result.Outcome);
+    }
+
+    [Fact]
+    public async Task NoOutputParamContract_NullReturnValue_IsAccepted()
+    {
+        var contract = new OemWmiMethodContract(
+            HasOutParameters: false,
+            HasReturnValue: false,
+            IsInputArray: false,
+            InputParameterName: "u8Input");
+
+        var backend = new StubBackend(
+            new OemBackendProbeResult(1, true, null, contract),
+            new OemBackendInvokeResult(true, null, false, false, null));
+
+        var service = new OemPowerModeService(backend);
+        var result = await service.SetModeAsync(OemPowerMode.Balanced);
+
+        Assert.Equal(OemSwitchOutcome.Accepted, result.Outcome);
+        Assert.Equal(0u, result.ReturnValue);
+        Assert.Contains("无输出参数", result.Message);
+    }
+
+    [Fact]
+    public async Task NoReturnValueContract_NullReturnValue_IsAccepted()
+    {
+        var contract = new OemWmiMethodContract(
+            HasOutParameters: true,
+            HasReturnValue: false,
+            IsInputArray: false,
+            InputParameterName: "u8Input");
+
+        var backend = new StubBackend(
+            new OemBackendProbeResult(1, true, null, contract),
+            new OemBackendInvokeResult(true, null, false, false, null));
+
+        var service = new OemPowerModeService(backend);
+        var result = await service.SetModeAsync(OemPowerMode.Balanced);
+
+        Assert.Equal(OemSwitchOutcome.Accepted, result.Outcome);
+        Assert.Equal(0u, result.ReturnValue);
+    }
+
+    [Fact]
+    public async Task ContractWithReturnValue_NullReturnValue_IsIndeterminate()
+    {
+        var contract = new OemWmiMethodContract(
+            HasOutParameters: true,
+            HasReturnValue: true,
+            IsInputArray: false,
+            InputParameterName: "u8Input");
+
+        var backend = new StubBackend(
+            new OemBackendProbeResult(1, true, null, contract),
+            new OemBackendInvokeResult(true, null, false, false, null));
+
+        var service = new OemPowerModeService(backend);
+        var result = await service.SetModeAsync(OemPowerMode.Balanced);
+
+        Assert.Equal(OemSwitchOutcome.Indeterminate, result.Outcome);
     }
 
     private sealed class StubBackend : IOemPowerModeBackend

@@ -48,7 +48,7 @@ internal sealed class OemPowerModeService
 
     private OemModeSwitchResult SetMode(OemPowerMode mode)
     {
-        using var backend = _backend!;
+        var backend = _backend!;
 
         var probe = backend.ProbeActiveInstances();
 
@@ -112,6 +112,16 @@ internal sealed class OemPowerModeService
 
         if (invoke.ReturnValue is null)
         {
+            if (probe.Contract is { HasReturnValue: false } or { HasOutParameters: false })
+            {
+                return new OemModeSwitchResult(
+                    OemSwitchOutcome.Accepted,
+                    mode,
+                    $"OEM 请求“{mode.DisplayName()}”模式已被接受（方法签名无输出参数，调用无异常）。",
+                    0,
+                    1);
+            }
+
             return new OemModeSwitchResult(
                 OemSwitchOutcome.Indeterminate,
                 mode,

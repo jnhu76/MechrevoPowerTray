@@ -38,14 +38,14 @@ internal sealed class AppSettingsStore
             var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions)
                            ?? new AppSettings();
 
-            if (settings.LastAcceptedMode is null)
+            if (settings.LastOemRequestAcceptedMode is null)
             {
-                settings.LastAcceptedMode = MigrateLastSuccessfulMode(json);
+                settings.LastOemRequestAcceptedMode = MigrateLastSuccessfulMode(json);
             }
 
-            if (settings.LastAcceptedMode is { } mode && !mode.IsWhitelisted())
+            if (settings.LastOemRequestAcceptedMode is { } mode && !mode.IsWhitelisted())
             {
-                settings.LastAcceptedMode = null;
+                settings.LastOemRequestAcceptedMode = null;
             }
 
             return settings;
@@ -99,5 +99,5 @@ internal sealed class AppSettings
 
     public bool RestoreLastModeAtStartup { get; set; }
 
-    public OemPowerMode? LastAcceptedMode { get; set; }
+    public OemPowerMode? LastOemRequestAcceptedMode { get; set; }
 }

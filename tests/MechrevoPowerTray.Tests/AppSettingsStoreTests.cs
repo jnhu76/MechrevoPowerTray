@@ -14,13 +14,13 @@ public sealed class AppSettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public void LegacyLastSuccessfulMode_LoadsIntoLastAcceptedMode()
+    public void LegacyLastSuccessfulMode_LoadsIntoLastOemRequestAcceptedMode()
     {
         Directory.CreateDirectory(_testDir);
         File.WriteAllText(Path.Combine(_testDir, "settings.json"), """{"LastSuccessfulMode": 2}""");
         var store = new AppSettingsStore(_testDir);
         var settings = store.Load();
-        Assert.Equal(OemPowerMode.Balanced, settings.LastAcceptedMode);
+        Assert.Equal(OemPowerMode.Balanced, settings.LastOemRequestAcceptedMode);
     }
 
     [Fact]
@@ -30,7 +30,7 @@ public sealed class AppSettingsStoreTests : IDisposable
         File.WriteAllText(Path.Combine(_testDir, "settings.json"), """{"LastSuccessfulMode": 0}""");
         var store = new AppSettingsStore(_testDir);
         var settings = store.Load();
-        Assert.Null(settings.LastAcceptedMode);
+        Assert.Null(settings.LastOemRequestAcceptedMode);
     }
 
     [Fact]
@@ -40,32 +40,32 @@ public sealed class AppSettingsStoreTests : IDisposable
         File.WriteAllText(Path.Combine(_testDir, "settings.json"), """{"LastSuccessfulMode": 4}""");
         var store = new AppSettingsStore(_testDir);
         var settings = store.Load();
-        Assert.Null(settings.LastAcceptedMode);
+        Assert.Null(settings.LastOemRequestAcceptedMode);
     }
 
     [Fact]
-    public void NewLastAcceptedMode_TakesPriority()
+    public void NewLastOemRequestAcceptedMode_TakesPriority()
     {
         Directory.CreateDirectory(_testDir);
-        File.WriteAllText(Path.Combine(_testDir, "settings.json"), """{"LastAcceptedMode": 3, "LastSuccessfulMode": 2}""");
+        File.WriteAllText(Path.Combine(_testDir, "settings.json"), """{"LastOemRequestAcceptedMode": 3, "LastSuccessfulMode": 2}""");
         var store = new AppSettingsStore(_testDir);
         var settings = store.Load();
-        Assert.Equal(OemPowerMode.Performance, settings.LastAcceptedMode);
+        Assert.Equal(OemPowerMode.Performance, settings.LastOemRequestAcceptedMode);
     }
 
     [Fact]
-    public void Save_WritesOnlyLastAcceptedMode()
+    public void Save_WritesOnlyLastOemRequestAcceptedMode()
     {
         var store = new AppSettingsStore(_testDir);
         var settings = new AppSettings
         {
-            LastAcceptedMode = OemPowerMode.Quiet,
+            LastOemRequestAcceptedMode = OemPowerMode.Quiet,
             SyncWindowsPowerPlan = true,
             RestoreLastModeAtStartup = false
         };
         store.Save(settings);
         var written = File.ReadAllText(Path.Combine(_testDir, "settings.json"));
-        Assert.Contains("LastAcceptedMode", written);
+        Assert.Contains("LastOemRequestAcceptedMode", written);
         Assert.DoesNotContain("LastSuccessfulMode", written);
     }
 
@@ -77,7 +77,7 @@ public sealed class AppSettingsStoreTests : IDisposable
         var store = new AppSettingsStore(_testDir);
         var settings = store.Load();
         Assert.NotNull(settings);
-        Assert.Null(settings.LastAcceptedMode);
+        Assert.Null(settings.LastOemRequestAcceptedMode);
     }
 
     public void Dispose()
