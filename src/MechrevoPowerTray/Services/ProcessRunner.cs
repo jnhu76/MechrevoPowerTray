@@ -20,13 +20,9 @@ internal sealed class ProcessRunner : IProcessRunner, IDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            Arguments = BuildArguments(arguments)
         };
-
-        foreach (var arg in arguments)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
 
         Process? process;
         try
@@ -130,6 +126,12 @@ internal sealed class ProcessRunner : IProcessRunner, IDisposable
         }
 
         return stderr[..MaxStderrLength] + "…";
+    }
+
+    private static string BuildArguments(IReadOnlyList<string> arguments)
+    {
+        return string.Join(" ", arguments.Select(a =>
+            a.Contains(' ') && !a.StartsWith('"') ? $"\"{a}\"" : a));
     }
 
     public void Dispose()

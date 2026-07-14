@@ -56,7 +56,7 @@ dotnet test .\tests\MechrevoPowerTray.Tests\MechrevoPowerTray.Tests.csproj
 - **x64 only**：`PlatformTarget=x64`, `Prefer32Bit=false`
 - **只允许 OEM 值 1/2/3**：任何其他值（含 0、4）必须拒绝，见 `OemPowerMode.IsWhitelisted()`
 - **不做 EC 读写**、不调用其他 WMI 方法、不拼接 WMI 查询字符串
-- **登录自动启动**：`StartupTaskService` 通过 `schtasks /Create /SC ONLOGON /RL HIGHEST` 创建计划任务，支持启用/禁用
+- **登录自动启动**：`StartupTaskService` 通过 `schtasks /Create /XML` 创建计划任务（含交互式令牌 + 最高权限），路径含空格时不会被截断；支持启用/禁用
 - **不依赖本地化错误文本**：`StartupTaskService.RemoveAsync` 靠退出码判断，不用 stderr 字符串匹配
 - **stdout/stderr 并发读取**：`ProcessRunner` 使用 `Task.WhenAny` + timeout + `process.Kill`
 - **源文件全中文**：类名、注释、UI 字符串均为中文

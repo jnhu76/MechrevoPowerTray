@@ -1,3 +1,6 @@
+using System.Security.Principal;
+using System.Text;
+
 namespace MechrevoPowerTray.Services;
 
 internal enum StartupTaskState
@@ -106,31 +109,91 @@ internal sealed class StartupTaskService
                 return (false, "无法获取程序路径");
             }
 
-            var result = await _processRunner.RunAsync(
-                SchtasksFullPath,
-                ["/Create", "/TN", TaskName, "/TR", exePath, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"],
-                SchtasksTimeout,
-                cancellationToken).ConfigureAwait(false);
-
-            if (result.Status == ProcessRunStatus.Started && result.ExitCode == 0)
+            var userSid = WindowsIdentity.GetCurrent().User?.Value;
+            if (string.IsNullOrEmpty(userSid))
             {
-                return (true, string.Empty);
+                return (false, "无法获取当前用户 SID");
             }
 
-            var message = result.Status switch
-            {
-                ProcessRunStatus.Started => $"创建失败（退出码 {result.ExitCode}）",
-                ProcessRunStatus.TimedOut => "创建操作超时",
-                ProcessRunStatus.StartFailed => "无法启动 schtasks.exe",
-                _ => "创建操作失败"
-            };
+            var tempXml = Path.Combine(
+                Path.GetTempPath(),
+                $"MechrevoPowerTray_StartupTask_{Guid.NewGuid():N}.xml");
 
-            return (false, message);
+            try
+            {
+                var xml = BuildTaskXml(userSid, exePath);
+                File.WriteAllText(tempXml, xml, new UnicodeEncoding(false, true));
+
+                var result = await _processRunner.RunAsync(
+                    SchtasksFullPath,
+                    ["/Create", "/TN", TaskName, "/XML", tempXml, "/F"],
+                    SchtasksTimeout,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (result.Status == ProcessRunStatus.Started && result.ExitCode == 0)
+                {
+                    return (true, string.Empty);
+                }
+
+                var message = result.Status switch
+                {
+                    ProcessRunStatus.Started => $"创建失败（退出码 {result.ExitCode}）",
+                    ProcessRunStatus.TimedOut => "创建操作超时",
+                    ProcessRunStatus.StartFailed => "无法启动 schtasks.exe",
+                    _ => "创建操作失败"
+                };
+
+                return (false, message);
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(tempXml);
+                }
+                catch
+                {
+                }
+            }
         }
         catch (Exception ex)
         {
             return (false, $"创建异常：{ex.Message}");
         }
+    }
+
+    internal static string BuildTaskXml(string userSid, string exePath)
+    {
+        return $$"""
+            <?xml version="1.0" encoding="UTF-16"?>
+            <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+              <RegistrationInfo>
+                <URI>\{{TaskName}}</URI>
+              </RegistrationInfo>
+              <Principals>
+                <Principal id="Author">
+                  <UserId>{{userSid}}</UserId>
+                  <LogonType>InteractiveToken</LogonType>
+                  <RunLevel>HighestAvailable</RunLevel>
+                </Principal>
+              </Principals>
+              <Settings>
+                <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+                <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+                <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+              </Settings>
+              <Triggers>
+                <LogonTrigger>
+                  <Enabled>true</Enabled>
+                </LogonTrigger>
+              </Triggers>
+              <Actions Context="Author">
+                <Exec>
+                  <Command>{{exePath}}</Command>
+                </Exec>
+              </Actions>
+            </Task>
+            """;
     }
 
     private static string SchtasksFullPath =>
