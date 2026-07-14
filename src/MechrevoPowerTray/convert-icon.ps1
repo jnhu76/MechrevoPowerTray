@@ -1,63 +1,14 @@
-Add-Type -AssemblyName System.Drawing
+$ErrorActionPreference = "Stop"
+$Magick = "C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
+$SourcePng = [System.IO.Path]::GetFullPath("..\..\ChatGPT Image 2026年7月14日 15_39_54.png")
+$OutDir = Split-Path -Parent $PSCommandPath
 
-$pngPath = "icon.png"
-$icoPath = [System.IO.Path]::GetFullPath("icon.ico")
+Set-Location $OutDir
 
-if (-not (Test-Path $pngPath)) {
-    Write-Error "icon.png not found at $pngPath"
-    exit 1
-}
+# Remove background → rounded corners → resize → compress
+& cmd /c """$Magick"" ""$SourcePng"" -fuzz 15% -transparent white -resize 256x256 -alpha on ( +clone -alpha extract -draw ""roundrectangle 0,0,255,255,40,40"" ) -compose CopyOpacity -composite -strip -quality 90 icon.png 2>&1"
 
-$source = [System.Drawing.Bitmap]::new($pngPath)
-$sizes = @(16, 24, 32, 48, 64, 128, 256)
-$pngDataList = @()
+# Generate ICO with multiple sizes
+& $Magick icon.png -background none -define icon:auto-resize=256,64,48,32,16 icon.ico 2>&1
 
-foreach ($size in $sizes) {
-    $resized = [System.Drawing.Bitmap]::new($source, [System.Drawing.Size]::new($size, $size))
-    $ms = [System.IO.MemoryStream]::new()
-    $resized.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-    $pngDataList += @{ Width = $size; Data = $ms.ToArray() }
-    $ms.Dispose()
-    $resized.Dispose()
-}
-
-$source.Dispose()
-
-$fs = [System.IO.File]::Open($icoPath, [System.IO.FileMode]::Create)
-$writer = [System.IO.BinaryWriter]::new($fs)
-
-$count = $pngDataList.Count
-
-$writer.Write([UInt16]0)        # Reserved
-$writer.Write([UInt16]1)        # Type: 1 = ICO
-$writer.Write([UInt16]$count)   # Count
-
-$offset = 6 + $count * 16
-
-$offsets = @()
-foreach ($png in $pngDataList) {
-    $offsets += $offset
-    $offset += $png.Data.Length
-}
-
-for ($i = 0; $i -lt $count; $i++) {
-    $w = if ($pngDataList[$i].Width -ge 256) { 0 } else { $pngDataList[$i].Width }
-    $h = if ($pngDataList[$i].Width -ge 256) { 0 } else { $pngDataList[$i].Width }
-    $writer.Write([byte]$w)
-    $writer.Write([byte]$h)
-    $writer.Write([byte]0)     # Color count
-    $writer.Write([byte]0)     # Reserved
-    $writer.Write([UInt16]1)   # Planes
-    $writer.Write([UInt16]32)  # Bit count
-    $writer.Write([UInt32]$pngDataList[$i].Data.Length)
-    $writer.Write([UInt32]$offsets[$i])
-}
-
-foreach ($png in $pngDataList) {
-    $writer.Write($png.Data)
-}
-
-$writer.Dispose()
-$fs.Dispose()
-
-Write-Host "icon.ico created at $icoPath with $count sizes: $($sizes -join ', ')"
+Write-Host "icon.ico generated" -ForegroundColor Green
