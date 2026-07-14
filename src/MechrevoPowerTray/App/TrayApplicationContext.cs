@@ -289,9 +289,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void ShowAbout()
     {
+        var version = typeof(Program).Assembly.GetName().Version;
+        var versionStr = version is not null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.1";
+
         MessageBox.Show(
-            """
-            Mechrevo Power Tray
+            $"""
+            Mechrevo Power Tray v{versionStr}
+
+            MECHREVO WUJIE 16 Pro（无界 16 Pro）性能模式切换工具
+            https://github.com/jnhu76/MechrevoPowerTray
 
             OEM 模式白名单：
             1 = 安静
