@@ -1,10 +1,21 @@
 namespace MechrevoPowerTray.Models;
 
+internal enum OemSwitchOutcome
+{
+    Rejected,
+    Indeterminate,
+    Accepted
+}
+
 internal sealed record OemModeSwitchResult(
-    bool Success,
+    OemSwitchOutcome Outcome,
+    OemPowerMode RequestedMode,
     string Message,
     uint? ReturnValue = null,
-    int MatchingInstanceCount = 0);
+    int ActiveInstanceCount = 0)
+{
+    public bool IsAccepted => Outcome == OemSwitchOutcome.Accepted;
+}
 
 internal sealed record PowerPlanSwitchResult(
     bool Success,

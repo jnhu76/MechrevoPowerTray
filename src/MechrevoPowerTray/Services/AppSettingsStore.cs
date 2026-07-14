@@ -13,11 +13,14 @@ internal sealed class AppSettingsStore
     private readonly string _settingsPath;
 
     internal AppSettingsStore()
-    {
-        var directory = Path.Combine(
+        : this(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MechrevoPowerTray");
+            "MechrevoPowerTray"))
+    {
+    }
 
+    internal AppSettingsStore(string directory)
+    {
         Directory.CreateDirectory(directory);
         _settingsPath = Path.Combine(directory, "settings.json");
     }
@@ -35,9 +38,14 @@ internal sealed class AppSettingsStore
             var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions)
                            ?? new AppSettings();
 
-            if (settings.LastSuccessfulMode is { } mode && !mode.IsWhitelisted())
+            if (settings.LastAcceptedMode is null)
             {
-                settings.LastSuccessfulMode = null;
+                settings.LastAcceptedMode = MigrateLastSuccessfulMode(json);
+            }
+
+            if (settings.LastAcceptedMode is { } mode && !mode.IsWhitelisted())
+            {
+                settings.LastAcceptedMode = null;
             }
 
             return settings;
@@ -56,6 +64,33 @@ internal sealed class AppSettingsStore
         File.WriteAllText(tempPath, json);
         File.Move(tempPath, _settingsPath, overwrite: true);
     }
+
+    private static OemPowerMode? MigrateLastSuccessfulMode(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("LastSuccessfulMode", out var legacyProp))
+            {
+                return null;
+            }
+
+            if (legacyProp.ValueKind != JsonValueKind.Number)
+            {
+                return null;
+            }
+
+            var raw = legacyProp.GetByte();
+            var mode = (OemPowerMode)raw;
+
+            return mode.IsWhitelisted() ? mode : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 internal sealed class AppSettings
@@ -64,5 +99,5 @@ internal sealed class AppSettings
 
     public bool RestoreLastModeAtStartup { get; set; }
 
-    public OemPowerMode? LastSuccessfulMode { get; set; }
+    public OemPowerMode? LastAcceptedMode { get; set; }
 }

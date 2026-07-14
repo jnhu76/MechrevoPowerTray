@@ -8,14 +8,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
 {
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu;
-    private readonly ToolStripMenuItem _statusItem;
+    private readonly ToolStripMenuItem _lastAcceptedItem;
+    private readonly ToolStripMenuItem _hardwareStatusItem;
     private readonly Dictionary<OemPowerMode, ToolStripMenuItem> _modeItems;
     private readonly ToolStripMenuItem _syncPowerPlanItem;
     private readonly ToolStripMenuItem _restoreAtStartupItem;
     private readonly ToolStripMenuItem _startupStateItem;
     private readonly ToolStripMenuItem _startupActionItem;
 
-    private readonly OemPowerModeService _oemService = new();
+    private readonly OemPowerModeService _oemService;
     private readonly WindowsPowerPlanService _powerPlanService = new();
     private readonly StartupTaskService _startupTaskService;
     private readonly AppSettingsStore _settingsStore = new();
@@ -25,23 +26,30 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private bool _closing;
 
     internal TrayApplicationContext()
-        : this(new ProcessRunner())
+        : this(new ProcessRunner(), new WmiOemPowerModeBackend())
     {
     }
 
-    internal TrayApplicationContext(IProcessRunner processRunner)
+    internal TrayApplicationContext(IProcessRunner processRunner, IOemPowerModeBackend oemBackend)
     {
+        _oemService = new OemPowerModeService(oemBackend);
         _startupTaskService = new StartupTaskService(processRunner);
 
         _settings = _settingsStore.Load();
 
         _menu = new ContextMenuStrip();
 
-        _statusItem = new ToolStripMenuItem
+        _lastAcceptedItem = new ToolStripMenuItem
         {
             Enabled = false
         };
-        _menu.Items.Add(_statusItem);
+        _menu.Items.Add(_lastAcceptedItem);
+
+        _hardwareStatusItem = new ToolStripMenuItem("当前硬件模式：未回读")
+        {
+            Enabled = false
+        };
+        _menu.Items.Add(_hardwareStatusItem);
         _menu.Items.Add(new ToolStripSeparator());
 
         _modeItems = new Dictionary<OemPowerMode, ToolStripMenuItem>
@@ -129,7 +137,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         UpdateMenuState();
 
         if (_settings.RestoreLastModeAtStartup &&
-            _settings.LastSuccessfulMode is { } lastMode &&
+            _settings.LastAcceptedMode is { } lastMode &&
             lastMode.IsWhitelisted())
         {
             _ = SwitchModeAsync(lastMode, isStartupRestore: true);
@@ -182,11 +190,21 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             var oemResult = await _oemService.SetModeAsync(mode);
 
-            if (!oemResult.Success)
+            if (oemResult.Outcome == OemSwitchOutcome.Rejected)
             {
-                ShowError(oemResult.Message);
+                ShowOemRejected(oemResult);
                 return;
             }
+
+            if (oemResult.Outcome == OemSwitchOutcome.Indeterminate)
+            {
+                ShowOemIndeterminate(oemResult);
+                return;
+            }
+
+            _settings.LastAcceptedMode = mode;
+            SaveSettings();
+            UpdateMenuState();
 
             PowerPlanSwitchResult? planResult = null;
             if (_settings.SyncWindowsPowerPlan)
@@ -194,32 +212,57 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 planResult = _powerPlanService.SetForMode(mode);
             }
 
-            _settings.LastSuccessfulMode = mode;
-            SaveSettings();
-            UpdateMenuState();
-
-            var title = isStartupRestore
-                ? "启动模式已恢复"
-                : "性能模式已切换";
-
-            var message = oemResult.Message;
-
-            if (planResult is { Success: false })
-            {
-                message += Environment.NewLine +
-                           $"但 {planResult.Message}";
-                ShowNotification(title, message, ToolTipIcon.Warning);
-            }
-            else
-            {
-                ShowNotification(title, message, ToolTipIcon.Info);
-            }
+            ShowOemAccepted(oemResult, planResult, isStartupRestore);
         }
         finally
         {
             _busy = false;
             UpdateMenuState();
         }
+    }
+
+    private void ShowOemAccepted(
+        OemModeSwitchResult result,
+        PowerPlanSwitchResult? planResult,
+        bool isStartupRestore)
+    {
+        var title = "OEM 请求已接受";
+        var message = result.Message;
+
+        if (planResult is { Success: false })
+        {
+            message += Environment.NewLine + $"但 {planResult.Message}";
+            ShowNotification(title, message, ToolTipIcon.Warning);
+        }
+        else
+        {
+            ShowNotification(title, message, ToolTipIcon.Info);
+        }
+    }
+
+    private void ShowOemRejected(OemModeSwitchResult result)
+    {
+        ShowNotification("OEM 请求被拒绝", result.Message, ToolTipIcon.Error);
+
+        MessageBox.Show(
+            result.Message,
+            "Mechrevo Power Tray",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Error);
+    }
+
+    private void ShowOemIndeterminate(OemModeSwitchResult result)
+    {
+        ShowNotification(
+            "OEM 请求结果未知",
+            result.Message,
+            ToolTipIcon.Warning);
+
+        MessageBox.Show(
+            result.Message,
+            "Mechrevo Power Tray",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
     }
 
     private async Task RunDiagnosticsAsync()
@@ -281,12 +324,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateMenuState()
     {
-        var lastMode = _settings.LastSuccessfulMode;
-        _statusItem.Text = _busy
-            ? "状态：正在切换……"
-            : lastMode is { } mode
-                ? $"上次成功请求：{mode.DisplayName()}"
-                : "上次成功请求：无";
+        var lastMode = _settings.LastAcceptedMode;
+
+        if (_busy)
+        {
+            _lastAcceptedItem.Text = "状态：正在切换……";
+            _hardwareStatusItem.Visible = false;
+        }
+        else
+        {
+            _lastAcceptedItem.Text = lastMode is { } mode
+                ? $"上次 OEM 已接受请求：{mode.DisplayName()}"
+                : "上次 OEM 已接受请求：无";
+            _hardwareStatusItem.Visible = true;
+        }
 
         foreach (var pair in _modeItems)
         {
