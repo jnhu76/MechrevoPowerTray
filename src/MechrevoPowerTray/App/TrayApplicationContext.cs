@@ -25,6 +25,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private AppSettings _settings;
     private bool _busy;
     private bool _closing;
+    private OemPowerMode? _lastNotifiedMode;
 
     internal TrayApplicationContext()
         : this(new ProcessRunner(), new WmiOemPowerModeBackend())
@@ -117,7 +118,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _menu.Opening += async (_, _) =>
         {
-            var state = await _startupTaskService.GetStateAsync().ConfigureAwait(false);
+            var state = await _startupTaskService.GetStateAsync();
             ApplyStartupState(state);
             UpdateMenuState();
         };
@@ -233,13 +234,30 @@ internal sealed class TrayApplicationContext : ApplicationContext
         CombinedModeSwitchResult result,
         bool isStartupRestore)
     {
-        var icon = result.AllSuccessful ? ToolTipIcon.Info : ToolTipIcon.Warning;
+        if (isStartupRestore && result.AllSuccessful)
+        {
+            return;
+        }
 
-        var title = result.AllSuccessful
-            ? "模式切换完成"
-            : "模式切换部分成功";
+        if (result.AllSuccessful && result.RequestedMode == _lastNotifiedMode)
+        {
+            return;
+        }
 
-        ShowNotification(title, result.CombinedMessage, icon);
+        if (result.AllSuccessful)
+        {
+            _lastNotifiedMode = result.RequestedMode;
+            ShowNotification(
+                "模式切换",
+                $"已切换到{result.RequestedMode.DisplayName()}模式",
+                ToolTipIcon.Info);
+            return;
+        }
+
+        ShowNotification(
+            "切换失败",
+            result.CombinedMessage,
+            ToolTipIcon.Warning);
     }
 
     private void ShowOemRejected(OemModeSwitchResult result)
@@ -306,15 +324,39 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         try
         {
-            var result = await _startupTaskService.RemoveAsync().ConfigureAwait(false);
+            var state = await _startupTaskService.GetStateAsync();
 
-            if (result.Success)
+            if (state == StartupTaskState.Missing)
             {
-                ShowNotification("启动任务", "旧版高权限启动任务已删除。", ToolTipIcon.Info);
+                var result = await _startupTaskService.CreateAsync();
+
+                if (result.Success)
+                {
+                    ApplyStartupState(StartupTaskState.Present);
+                    ShowNotification("登录自动启动", "已启用，下次登录时生效。", ToolTipIcon.Info);
+                }
+                else
+                {
+                    ShowError($"启用自动启动失败：{result.Message}");
+                }
+            }
+            else if (state == StartupTaskState.Present)
+            {
+                var result = await _startupTaskService.RemoveAsync();
+
+                if (result.Success)
+                {
+                    ApplyStartupState(StartupTaskState.Missing);
+                    ShowNotification("登录自动启动", "已禁用。", ToolTipIcon.Info);
+                }
+                else
+                {
+                    ShowError($"禁用自动启动失败：{result.Message}");
+                }
             }
             else
             {
-                ShowError($"删除启动任务失败：{result.Message}");
+                ShowError("启动任务状态异常，无法执行操作。");
             }
         }
         finally

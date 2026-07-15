@@ -20,7 +20,7 @@ internal sealed class ProcessRunner : IProcessRunner, IDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
         };
 
         foreach (var arg in arguments)

@@ -6,21 +6,21 @@ namespace MechrevoPowerTray.Tests;
 public sealed class StartupTaskMenuDisplayTests
 {
     [Fact]
-    public void MissingTask_ShowsPausedText_NoAction()
+    public void MissingTask_ShowsNotEnabledText_WithEnableAction()
     {
         var (stateText, actionText) = StartupTaskMenuDisplay.GetDisplay(StartupTaskState.Missing);
 
-        Assert.Contains("已暂停", stateText);
-        Assert.Null(actionText);
+        Assert.Contains("未启用", stateText);
+        Assert.Equal("启用自动启动", actionText);
     }
 
     [Fact]
-    public void LegacyPresent_ShowsDetectedText_WithRemoveAction()
+    public void Present_ShowsEnabledText_WithDisableAction()
     {
-        var (stateText, actionText) = StartupTaskMenuDisplay.GetDisplay(StartupTaskState.LegacyPresent);
+        var (stateText, actionText) = StartupTaskMenuDisplay.GetDisplay(StartupTaskState.Present);
 
-        Assert.Contains("旧版", stateText);
-        Assert.Equal("删除旧版启动任务", actionText);
+        Assert.Contains("已启用", stateText);
+        Assert.Equal("禁用自动启动", actionText);
     }
 
     [Fact]
