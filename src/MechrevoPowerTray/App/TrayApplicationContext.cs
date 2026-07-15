@@ -332,6 +332,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
                 if (result.Success)
                 {
+                    ApplyStartupState(StartupTaskState.Present);
                     ShowNotification("登录自动启动", "已启用，下次登录时生效。", ToolTipIcon.Info);
                 }
                 else
@@ -345,6 +346,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
                 if (result.Success)
                 {
+                    ApplyStartupState(StartupTaskState.Missing);
                     ShowNotification("登录自动启动", "已禁用。", ToolTipIcon.Info);
                 }
                 else

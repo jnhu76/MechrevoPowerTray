@@ -172,7 +172,7 @@ internal sealed class StartupTaskService
               </RegistrationInfo>
               <Principals>
                 <Principal id="Author">
-                  <UserId>{{userSid}}</UserId>
+                  <UserId>{{EscapeXml(userSid)}}</UserId>
                   <LogonType>InteractiveToken</LogonType>
                   <RunLevel>HighestAvailable</RunLevel>
                 </Principal>
@@ -189,12 +189,15 @@ internal sealed class StartupTaskService
               </Triggers>
               <Actions Context="Author">
                 <Exec>
-                  <Command>{{exePath}}</Command>
+                  <Command>{{EscapeXml(exePath)}}</Command>
                 </Exec>
               </Actions>
             </Task>
             """;
     }
+
+    private static string EscapeXml(string value) =>
+        value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&apos;");
 
     private static string SchtasksFullPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), SchtasksExe);
